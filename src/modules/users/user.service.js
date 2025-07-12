@@ -1,124 +1,127 @@
-import { connection } from "../../DB/connectionDB.js";
+import userModel from "../../DB/models/user.model.js";
+import { Op, Sequelize, UniqueConstraintError } from "sequelize";
 
+const handleError = (
+  res,
+  error,
+  message = "Controller error",
+  statusCode = 500
+) => {
+  console.error(error); // Log the actual error for debugging
+  return res.status(statusCode).json({ message, error: error.message });
+};
 
-export const getAllUsers = (req, res, next) => {
-    connection.query(`select * from users`, (err, result) => {
-      if (err) {
-        return res.status(400).json({ message: "error query", err });
-      }
-      console.log(result);
-      return res.status(200).json({ message: "done query request", result });
+//Register a new user
+
+export const singUp = async (req, res, next) => {
+  try {
+    const { name, email, password, role, gender } = req.body;
+
+    const existingUser = await userModel.findOne({ where: { u_email: email } });
+    if (existingUser) {
+      return res.status(409).json({ message: "Email already exists" });
+    }
+
+    const newUser = userModel.build({
+      u_name: name,
+      u_email: email,
+      u_password: password,
+      u_role: role,
+      u_gender: gender,
     });
+    await newUser.save();
+
+    const userResponse = newUser.toJSON();
+
+    delete userResponse.u_password;
+
+    return res
+      .status(201)
+      .json({ message: "User created successfully", user: userResponse });
+  } catch (error) {
+    return handleError(res, error, "Error during sign-up");
   }
+};
 
+//Get a specific user by his ID
 
-  export const singUp = (req, res, next) => {
-    const { fName, lName, email, password, gender, DOB } = req.body;
-
-    const findQuery = `select u_email from users where u_email=?`;
-    connection.execute(findQuery, [email], (err, result) => {
-      if (err) {
-        return res.status(400).json({ message: "fail on Query", error: err });
-      }
-      if (result.length != 0) {
-        return res.status(409).json({ message: "user already exist" });
-      }
-
-      const insertQuery = `insert into users(u_fName, u_lName, u_email,u_password, u_gender, u_DOB) values (?,?,?,?,?,?)`;
-
-      connection.execute(
-        insertQuery,
-        [fName, lName, email, password, gender, DOB],
-        (err, result) => {
-          if (err) {
-            return res
-              .status(400)
-              .json({ message: "fail on Query", error: err });
-          }
-          return res.status(201).json({ message: "DONE" });
-        }
-      );
-    });
-  }
-
-
-  export const singIn = (req, res, next) => {
-    const { email, password } = req.body;
-    const findQuery = `select u_email,u_password from users where u_email=? and u_password=?`;
-    connection.execute(findQuery, [email, password], (err, result) => {
-      if (err) {
-        return res.status(400).json({ message: "fail on query", error: err });
-      }
-      if (result.length == 0) {
-        return res
-          .status(400)
-          .json({ message: "email not exist or wrong password" });
-      }
-      return res.status(200).json({ message: "Done", user: result[0] });
-    });
-  }
-
-  export const getProfile = (req, res, next) => {
+export const getProfile = async (req, res, next) => {
+  try {
     const { id } = req.params;
-    const findQuery = `select 
-    u_id,u_email,
-    TIMESTAMPDIFF(YEAR, u_DOB,CURDATE()) AS age,
-    CONCAT(u_fName," ",u_lName) as fullName from users where u_id=?`;
-    connection.execute(findQuery, [id], (err, result) => {
-      if (err) {
-        return res.status(400).json({ message: "fail on Query", error: err });
-      }
-      if (result.length == 0) {
-        return res.status(404).json({ message: "user not exist" });
-      }
-      return res.status(200).json({ message: "done", users: result[0] });
+    const user = await userModel.findByPk(id, {
+      attributes: [
+        ["u_id", "id"],
+        ["u_name", "name"],
+        ["u_email", "email"],
+        "createdAt",
+        "updatedAt",
+      ],
     });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.status(200).json(user);
+  } catch (error) {
+    return handleError(res, error, "Error fetching profile");
   }
+};
 
-  export const search = (req, res, next) => {
-    const findQuery = ` select * from users where u_fName like ? or u_lName like ?`;
-    connection.execute(
-      findQuery,
-      ["%" + req.query.name + "%", req.query.name + "%"],
-      (err, result) => {
-        if (err) {
-          return res.status(400).json({ message: "fail on query", error: err });
-        }
+export const getProfileByEmail = async (req, res, next) => {
+  try {
+    const { email } = req.params;
+    const user = await userModel.findOne({
+      where: { u_email: email },
+      attributes: [
+        ["u_id", "id"],
+        ["u_name", "name"],
+        ["u_email", "email"],
+        ['u_role','role'],
+        "createdAt",
+        "updatedAt",
+      ],
+    });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    return res.status(200).json(user);
+  } catch (error) {
+    return handleError(res, error, "Error fetching profile");
+  }
+};
 
-        return res.status(200).json({ message: "done", users: result });
+export const updateUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const { name, email, role } = req.body;
+
+    await userModel.upsert(
+      {
+        u_id: id,
+        u_name: name,
+        u_email: email,
+        u_role: role,
+      },
+      {
+        skipValidation: true,
       }
     );
+
+    return res
+      .status(200)
+      .json({ message: "User created or updated successfully" });
+  } catch (error) {
+    if (error instanceof UniqueConstraintError) {
+      return res
+        .status(409)
+        .json({ message: "This email has already been used." });
+    }
+
+    // Handle all other potential errors
+    console.error("Error during upsert:", error);
+    return res
+      .status(500)
+      .json({ message: "Error during upsert", error: error.message });
   }
-
-  export const updateUser = (req, res, next) => {
-    const { gender } = req.body;
-    const { id } = req.params;
-    const updateQuery = ` update users set u_gender=? where u_id=?`;
-    connection.execute(updateQuery, [gender, id], (err, result) => {
-      if (err) {
-        return res.status(400).json({ message: "fail on query", error: err });
-      }
-
-      if (result.affectedRows == 0) {
-        return res.status(400).json({ message: "user not exist" });
-      }
-
-      return res.status(200).json({ message: "done" });
-    });
-  }
-
-  export const deleteUser = (req, res, next) => {
-    const { id } = req.params;
-    const deleteQuery = ` delete from users where u_id=?`;
-    connection.execute(deleteQuery, [id], (err, result) => {
-      if (err) {
-        return res.status(400).json({ message: "fail on query", error: err });
-      }
-
-      if (result.affectedRows == 0) {
-        return res.status(400).json({ message: "user not exist" });
-      }
-
-      return res.status(200).json({ message: "done" });
-    });
-  }
+};

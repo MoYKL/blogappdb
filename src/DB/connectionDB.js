@@ -1,18 +1,32 @@
-import mysql from "mysql2";
+import { Sequelize } from "sequelize";
 
-export const connection = mysql.createConnection({
+export const sequelize = new Sequelize("blogappdb", "root", "", {
   host: "localhost",
-  user: "root",
-  password: "",
-  database: "blogappdb",
+  dialect: "mysql",
 });
 
-export const checkConnectionDB = () => {
-  connection.connect((err) => {
-    if (err) {
-      console.log({ message: "failed to connect to db", error: err });
-    } else {
-      console.log("db connected successfully ");
-    }
-  });
+
+
+
+
+export const checkConnectionDB = async () => {
+  await sequelize
+    .authenticate()
+    .then(() => {
+      console.log("Connection has been established successfully.");
+    })
+    .catch((error) => {
+      console.error("Unable to connect to the database:", error);
+    });
 };
+
+
+export const checkSyncDB = async () => {
+    await sequelize.sync ({ alter:false}).then(() =>{
+        console.log(`DB synced succes`);
+        
+    }).catch((error) => {
+        console.log(error);
+        
+    })
+}
